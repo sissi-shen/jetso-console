@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tracking Snippet Test Page</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; }
+    h2 { color: #333; }
+    .wa-btn {
+      display: inline-block;
+      margin: 20px 0;
+      padding: 14px 28px;
+      background: #25D366;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .log {
+      margin-top: 24px;
+      padding: 16px;
+      background: #f4f4f4;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      min-height: 60px;
+      color: #333;
+    }
+    .note { font-size: 13px; color: #888; margin-top: 8px; }
+    label { font-size: 13px; font-weight: bold; color: #555; }
+    input { width: 100%; padding: 8px; margin: 4px 0 12px; font-size: 13px; border: 1px solid #ddd; border-radius: 6px; }
+  </style>
+
+  <!-- ① Fake gtag — stands in for the real GA4 script so we can test offline -->
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+
+    // Override gtag('get', ..., 'client_id', cb) to return a fake client_id
+    var _realGtag = window.gtag;
+    window.gtag = function(cmd, target, field, callback) {
+      if (cmd === 'get' && field === 'client_id') {
+        // Simulate what GA4 returns: random_number.unix_timestamp
+        var fakeId = '1122334455.' + Math.floor(Date.now() / 1000);
+        console.log('[mock gtag] returning fake client_id:', fakeId);
+        setTimeout(function() { callback(fakeId); }, 100); // small delay like real GA4
+        return;
+      }
+      _realGtag.apply(this, arguments);
+    };
+  </script>
+
+  <!-- ② Load our actual tracking snippet -->
+  <script src="./tracking.js"></script>
+</head>
+<body>
+  <h2>Tracking Snippet — Local Test Page</h2>
+  <p>
+    This page simulates fenarro.com's landing page. Click the WhatsApp button
+    and watch the "Generated URL" box below — it should show a
+    <code>wa.me</code> link with <code>[REF:...]</code> and <code>[SRC:...]</code> tags appended.
+  </p>
+  <p class="note">
+    The page will try to actually open WhatsApp. Just close it / dismiss it —
+    what matters is the URL shown below.
+  </p>
+
+  <hr/>
+
+  <p><strong>Simulate UTM parameters in the URL</strong> (normally set by Google Ads):</p>
+  <label>utm_source</label>
+  <input id="src" value="google" />
+  <label>utm_medium</label>
+  <input id="med" value="cpc" />
+  <label>utm_campaign</label>
+  <input id="camp" value="summer_sale" />
+  <button onclick="reloadWithUTMs()" style="padding:8px 16px;cursor:pointer;">Apply UTMs to URL →</button>
+  <p class="note">This rewrites the page URL with ?utm_source=... so the snippet can read them — same as what happens when a visitor arrives from a Google Ad.</p>
+
+  <hr/>
+
+  <!-- Fake WhatsApp button (same structure as a typical wa.me link) -->
+  <a class="wa-btn" href="https://wa.me/8617816534003?text=你好，我想咨询产品">
+    Contact on WhatsApp
+  </a>
+
+  <div>
+    <strong>Generated URL (will appear after click):</strong>
+    <div class="log" id="log">Click the button above to see the tagged URL here.</div>
+  </div>
+
+  <script>
+    // Intercept navigation so we can show the URL without actually leaving
+    (function () {
+      var log = document.getElementById('log');
+      var _assign = Object.getOwnPropertyDescriptor(window.location, 'href');
+
+      // Override window.location.href setter to capture the redirect
+      var origDesc = Object.getOwnPropertyDescriptor(window, 'location');
+      // Since location.href setter can't easily be overridden, we patch at a higher level:
+      // Listen for clicks on wa.me links BEFORE tracking.js does, but at capture phase
+      // so we can log the final href AFTER tracking.js rewrites it.
+      document.addEventListener('click', function (e) {
+        var link = e.target.closest('a[href*="wa.me"]');
+        if (!link) return;
+        // Wait a tick so tracking.js has time to rewrite href in its own listener
+        setTimeout(function () {
+          log.textContent = link.href;
+        }, 200);
+      }, true);
+    })();
+
+    function reloadWithUTMs() {
+      var src  = document.getElementById('src').value.trim();
+      var med  = document.getElementById('med').value.trim();
+      var camp = document.getElementById('camp').value.trim();
+      var url  = new URL(window.location.href);
+      url.searchParams.set('utm_source', src);
+      url.searchParams.set('utm_medium', med);
+      url.searchParams.set('utm_campaign', camp);
+      window.location.href = url.toString();
+    }
+  </script>
+</body>
+</html>

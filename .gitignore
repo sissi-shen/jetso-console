@@ -1,0 +1,25 @@
+# ─── Secrets — never commit ──────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+backend/.env
+# NOTE: console/.env.production IS committed on purpose — it holds no secrets,
+# only build flags. Without it the deployed app silently runs in mock mode.
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+
+# ─── Node / frontend build ───────────────────────────────────────────────────
+node_modules/
+dist/
+npm-debug.log*
+
+# ─── Tooling / OS ────────────────────────────────────────────────────────────
+.vercel
+.DS_Store
+.claude/settings.local.json
+
+# ─── Legacy ──────────────────────────────────────────────────────────────────
+leads.db
