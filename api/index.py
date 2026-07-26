@@ -183,6 +183,31 @@ def auth_refresh():
                     'email': (body.get('user') or {}).get('email', '')})
 
 
+@app.post('/api/auth/set-password')
+def auth_set_password():
+    """
+    Completes an invite (or password reset). The email link redirects to the
+    console with a short-lived access token in the URL fragment; the frontend
+    posts it here with the chosen password. GoTrue's PUT /user sets the
+    password for whoever the token belongs to — no admin key in the browser.
+    """
+    data = request.get_json(silent=True) or {}
+    token    = (data.get('access_token') or '').strip()
+    password = data.get('password') or ''
+    if not token:
+        return jsonify({'ok': False, 'error': 'access_token is required'}), 400
+    if len(password) < 8:
+        return jsonify({'ok': False, 'error': '密码至少需要 8 位'}), 400
+    try:
+        r = _gotrue('user', {'password': password}, jwt=token, method='PUT')
+    except requests.RequestException as e:
+        return jsonify({'ok': False, 'error': f'auth service unreachable: {e}'}), 503
+    if not r.ok:
+        return jsonify({'ok': False, 'error':
+                        '邀请链接已失效或已被使用。请联系管理员重新发送邀请。'}), 401
+    return jsonify({'ok': True, 'email': r.json().get('email', '')})
+
+
 # ─── ROUTES ───────────────────────────────────────────────────────────────────
 @app.post('/api/confirm')
 @require_auth

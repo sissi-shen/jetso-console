@@ -164,6 +164,8 @@ const mock = {
   logout() {},
   currentUser: () => '',
   hasSession: () => true,
+  async setPassword() { await delay(400); return { ok: true, email: 'demo@jetso.dev' } },
+  adoptSession() {},
 
   // Module 1: rep confirms a lead → backend fires GA4 valid_lead + logs row.
   async confirmLead({ client_id, utm_source, utm_medium, utm_campaign, utm_content, raw_message, notes }) {
@@ -259,6 +261,21 @@ const real = {
   logout: () => session.clear(),
   currentUser: () => session.email,
   hasSession: () => !!session.token,
+
+  // Invite / password-reset completion: the emailed link lands with a token in
+  // the URL fragment; this sets the password, then adoptSession logs them in
+  // with that same token — no second login step.
+  setPassword: async (access_token, password) => {
+    const r = await fetch(API_BASE + '/api/auth/set-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token, password }),
+    })
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok || !body.ok) throw new Error(body.error || '设置密码失败')
+    return body
+  },
+  adoptSession: ({ access_token, refresh_token, email }) =>
+    session.save({ access_token, refresh_token, email }),
   async uploadMedia(file) {
     const fd = new FormData()
     fd.append('file', file)

@@ -50,6 +50,102 @@ function Stamp({ status }) {
   );
 }
 
+// ─── Invite / password-reset landing ────────────────────────────────────────
+// Supabase's emailed links redirect here with a short-lived token in the URL
+// fragment: #access_token=…&refresh_token=…&type=invite|recovery
+// (or #error_description=… when the link is expired/used).
+function parseAuthHash() {
+  const raw = window.location.hash.slice(1);
+  if (!raw) return null;
+  const p = new URLSearchParams(raw);
+  const errDesc = p.get("error_description");
+  if (errDesc) return { error: errDesc.replace(/\+/g, " ") };
+  const type = p.get("type");
+  if (p.get("access_token") && (type === "invite" || type === "recovery" || type === "signup")) {
+    return {
+      access_token: p.get("access_token"),
+      refresh_token: p.get("refresh_token") || "",
+      type,
+    };
+  }
+  return null;
+}
+
+function SetPasswordView({ invite, onDone, onCancel }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const isRecovery = invite.type === "recovery";
+  const mismatch = pw2 && pw !== pw2;
+  const canSubmit = pw.length >= 8 && pw === pw2 && !busy;
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.setPassword(invite.access_token, pw);
+      // The invite token doubles as a session — log them straight in.
+      api.adoptSession({
+        access_token: invite.access_token,
+        refresh_token: invite.refresh_token,
+        email: res.email,
+      });
+      onDone(res.email);
+    } catch (err) {
+      setError(err?.message || "设置密码失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="login-wrap">
+      <form className="login-card" onSubmit={submit}>
+        <div className="brand" style={{ padding: 0, marginBottom: 18 }}>
+          <span className="brand-mark">J</span>
+          <span className="brand-name">Jetso Console</span>
+        </div>
+        <p className="view-sub" style={{ marginBottom: 18 }}>
+          {invite.error
+            ? "邀请链接已失效"
+            : isRecovery ? "为你的账号设置新密码" : "欢迎加入 — 设置密码以完成注册"}
+        </p>
+
+        {invite.error ? (
+          <>
+            <p className="hint-text hint-text--danger" style={{ marginBottom: 14 }}>
+              {invite.error}。请联系管理员重新发送邀请。
+            </p>
+            <button className="btn btn--primary login-btn" type="button" onClick={onCancel}>
+              返回登录
+            </button>
+          </>
+        ) : (
+          <>
+            <input
+              type="password" autoComplete="new-password" placeholder="设置密码（至少 8 位）"
+              value={pw} onChange={(e) => setPw(e.target.value)}
+            />
+            <input
+              type="password" autoComplete="new-password" placeholder="再输入一次确认"
+              value={pw2} onChange={(e) => setPw2(e.target.value)}
+            />
+            {mismatch && <p className="hint-text hint-text--danger">两次输入的密码不一致</p>}
+            {error && <p className="hint-text hint-text--danger">{error}</p>}
+            <button className="btn btn--primary login-btn" type="submit" disabled={!canSubmit}>
+              {busy ? "设置中…" : isRecovery ? "更新密码并登录" : "完成注册并登录"}
+            </button>
+          </>
+        )}
+      </form>
+    </div>
+  );
+}
+
 // ─── Login (invite-only — accounts are created in the Supabase dashboard) ──
 function LoginView({ onLoggedIn }) {
   const [email, setEmail] = useState("");
@@ -758,6 +854,14 @@ export default function JetsoConsole() {
   // auth: 'checking' | 'login' | 'in'
   const [authState, setAuthState] = useState("checking");
   const [userEmail, setUserEmail] = useState(api.currentUser());
+  // Invite/recovery token in the URL fragment (from Supabase's emailed link) —
+  // parsed once on mount, takes priority over the normal login gate.
+  const [invite, setInvite] = useState(parseAuthHash);
+
+  function clearInviteHash() {
+    window.history.replaceState(null, "", window.location.pathname);
+    setInvite(null);
+  }
 
   useEffect(() => {
     let alive = true;
@@ -1095,7 +1199,17 @@ export default function JetsoConsole() {
         .locked-sub { font-size: 12.5px; margin: 0 0 20px 0; max-width: 360px; line-height: 1.6; }
       `}</style>
 
-      {authState === "checking" ? (
+      {invite ? (
+        <SetPasswordView
+          invite={invite}
+          onDone={(email) => {
+            clearInviteHash();
+            setUserEmail(email);
+            setAuthState("in");
+          }}
+          onCancel={() => { clearInviteHash(); setAuthState("login"); }}
+        />
+      ) : authState === "checking" ? (
         <div className="login-wrap"><p className="dim">加载中…</p></div>
       ) : authState === "login" ? (
         <LoginView onLoggedIn={() => { setUserEmail(api.currentUser()); setAuthState("in"); }} />

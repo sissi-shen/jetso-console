@@ -207,6 +207,18 @@ flow entirely:
    **`AUTH_REQUIRED=true`** to Vercel env; remove dead `DEEPSEEK_*` /
    `WP_DRAFT_POST_TYPE` vars; delete `confirm.html`; tighten `FRONTEND_ORIGINS`.
 
+**Invite flow (added 2026-07-26):** real invitation onboarding now works.
+Supabase invite/recovery emails land on the console with a token in the URL
+fragment; the app shows a set-password screen (`SetPasswordView`), posts to
+`POST /api/auth/set-password` (GoTrue `PUT /user` with the invite token — no
+admin key in the browser), then adopts the token pair as a session so the user
+lands logged-in. Handles `type=invite|recovery|signup` and the
+`#error_description` expired-link case (返回登录 fallback). E2E-verified against
+real Supabase: admin `generate_link` → verify redirect → set-password → login
+with new password → test user deleted. Prereq: Site URL fixed to the Vercel
+domain (was localhost:3000 — the original bug). Invited-but-stuck users must be
+deleted and re-invited.
+
 **Auth (added 2026-07-24):** invite-only Supabase Auth scaffolded end-to-end.
 Backend: `/api/auth/login` + `/api/auth/refresh` (GoTrue REST directly — NOT via
 supabase-py, whose sign-in would swap the service_role client onto the user JWT
