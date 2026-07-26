@@ -103,14 +103,24 @@ Set these in **Vercel → Settings → Environment Variables** (names match
 
 | Variable | Notes |
 | --- | --- |
-| `GA4_MEASUREMENT_ID`, `GA4_API_SECRET` | GA4 Admin → Data Streams → Measurement Protocol |
-| `SUPABASE_URL`, `SUPABASE_KEY` | use the **service_role** key, never the anon key |
-| `WP_BASE_URL`, `WP_USERNAME`, `WP_APP_PASSWORD` | WP Application Password on a dedicated Editor account |
-| `TENANT_ID` | UUID of the seeded row in `tenants` |
-| `OPENROUTER_API_KEY`, `OPENROUTER_DEFAULT_MODEL` | default must be one of the three IDs in `MODEL_MENU` |
-| `AUTH_REQUIRED` | **must be `true` in production** — gates all data endpoints |
-| `FRONTEND_ORIGINS` | set to the deployed URL to lock down CORS |
-| `AI_MONTHLY_CAP_USER`, `AI_MONTHLY_CAP_TENANT` | USD/month, default 10 and 25 |
+One row = one variable. Values are literal: no quotes, no `$`, no units.
+
+| Variable | Value to set | Where it comes from |
+| --- | --- | --- |
+| `GA4_MEASUREMENT_ID` | `G-XXXXXXXXXX` | GA4 Admin → Data Streams → your web stream |
+| `GA4_API_SECRET` | the secret string | same screen → Measurement Protocol API secrets |
+| `SUPABASE_URL` | `https://<project-id>.supabase.co` | Supabase → Project Settings → API |
+| `SUPABASE_KEY` | the **service_role** key | same screen — never the anon/public key |
+| `WP_BASE_URL` | `https://rubflo.com` | no trailing slash |
+| `WP_USERNAME` | the Editor account's login | a dedicated Editor account, not the admin |
+| `WP_APP_PASSWORD` | the 24-char application password | WP → Users → Application Passwords |
+| `TENANT_ID` | `00000000-0000-0000-0000-000000000001` | the seeded row in `tenants` |
+| `OPENROUTER_API_KEY` | your key (`sk-or-v1-…`) | openrouter.ai → Keys |
+| `OPENROUTER_DEFAULT_MODEL` | `deepseek/deepseek-v4-flash` | must be one of the three IDs in `MODEL_MENU` |
+| `AUTH_REQUIRED` | `true` | **the most important one** — without it the console is public |
+| `FRONTEND_ORIGINS` | `*` at first, then your Vercel URL | tighten once the URL is known |
+| `AI_MONTHLY_CAP_USER` | `5` | USD per user per month |
+| `AI_MONTHLY_CAP_TENANT` | `8` | USD for the whole client per month |
 
 ### Controlling AI cost
 
@@ -173,7 +183,7 @@ signups, then add each staff account by hand under Users.
 | `leads` | Module 1: each confirmed inquiry, its attribution, the GA4 result, the rep's note |
 | `content_requests` | Module 2: every change's full lifecycle — before/after, the revert snapshot, model used, who submitted, approval status |
 | `tenant_wp_credentials` | Future home of per-client WordPress credentials (env vars while single-client) |
-| `ai_usage` | Ledger for per-user monthly AI spend caps (table ready, enforcement pending) |
+| `ai_usage` | Per-call AI spend ledger — one row per AI call, with the real cost OpenRouter charged. Backs the monthly caps |
 
 Row Level Security is enabled on every table with no permissive policies, so
 anything other than the server's service-role key reads zero rows.
