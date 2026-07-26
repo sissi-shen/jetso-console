@@ -1,0 +1,69 @@
+# Post-deploy gate: Vercel's GitHub integration reports each deployment back to
+# GitHub; this fires on that report and probes the LIVE deployment. It exists
+# because two of this project's three deployment failures were invisible until
+# the deployed URL was actually requested:
+#   - the console mounted at /console/ instead of /  (static-build quirk)
+#   - the Flask preset routing every path to Python, 404ing the console
+# A red X on the commit within ~a minute of deploy means the live site is wrong.
+name: Verify deployment
+
+on:
+  deployment_status:
+
+jobs:
+  probe:
+    name: Probe the live deployment
+    if: github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the three things that have actually broken
+        env:
+          URL: ${{ github.event.deployment_status.environment_url }}
+          DEPLOY_ENV: ${{ github.event.deployment.environment }}
+        run: |
+          set -uo pipefail
+          echo "Probing $URL (environment: $DEPLOY_ENV)"
+          fail=0
+
+          # 1. The console is served at the root
+          html=$(curl -fsS --max-time 20 "$URL/") \
+            || { echo "::error::GET / failed — console not served at root (framework preset or outputDirectory regressed)"; exit 1; }
+          echo "$html" | grep -q 'id="root"' \
+            || { echo "::error::/ returns 200 but isn't the console app"; fail=1; }
+
+          # 2. The JS bundle the page references actually resolves
+          asset=$(echo "$html" | grep -oE 'src="/assets/[^"]+\.js"' | head -1 | cut -d'"' -f2)
+          if [ -z "$asset" ]; then
+            echo "::error::index.html references no /assets/*.js bundle"; fail=1
+          elif ! curl -fsS -o /dev/null --max-time 20 "$URL$asset"; then
+            echo "::error::bundle $asset 404s — assets not deployed at the root"; fail=1
+          fi
+
+          # 3. The API half is routed and healthy
+          health=$(curl -fsS --max-time 20 "$URL/api/health") \
+            || { echo "::error::/api/health unreachable — Python function not routed"; exit 1; }
+          echo "health: $health"
+          echo "$health" | jq -e '.ok == true' >/dev/null \
+            || { echo "::error::/api/health did not return ok:true"; fail=1; }
+
+          # 4. Auth must be ON wherever the client could reach
+          #    (env vars were added to all Vercel environments, so previews too)
+          env_lc=$(echo "$DEPLOY_ENV" | tr '[:upper:]' '[:lower:]')
+          if [ "$env_lc" = "production" ]; then
+            echo "$health" | jq -e '.auth_required == true' >/dev/null \
+              || { echo "::error::AUTH_REQUIRED is not true in production — the console is PUBLIC"; fail=1; }
+          else
+            echo "$health" | jq -e '.auth_required == true' >/dev/null \
+              || echo "::warning::auth is off on this preview deployment"
+          fi
+
+          exit $fail
+
+  deployment-failed:
+    name: Surface Vercel build failures
+    if: github.event.deployment_status.state == 'failure' || github.event.deployment_status.state == 'error'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::Vercel deployment failed — build log: ${{ github.event.deployment_status.target_url }}"
+          exit 1

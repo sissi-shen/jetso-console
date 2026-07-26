@@ -98,6 +98,16 @@ Exit code 0 means safe to deploy.
 One Vercel project serves both halves: `vercel.json` builds the Vite app to
 static files and runs `api/index.py` as a Python function, routing `/api/*` to it.
 
+Two things in that file are load-bearing and easy to break:
+
+- **`"framework": null`** — Vercel auto-detects this repo as Flask (it sees
+  `requirements.txt`), and the Flask preset routes *every* request to the Python
+  function, so the console 404s at `/`. `null` means "no preset": static files
+  from `outputDirectory` are served at the root, while `api/*.py` is still
+  auto-detected as a Serverless Function.
+- **No comments.** `vercel.json` is validated with `additionalProperties: false`,
+  so even a `"//"` key fails the build. Explanations go here instead.
+
 Set these in **Vercel → Settings → Environment Variables** (names match
 `.env.example`):
 
@@ -157,6 +167,26 @@ dashboard.
 
 Database setup is a one-time paste of [`db/schema.sql`](db/schema.sql) into the
 Supabase SQL editor — every statement is idempotent, so re-running it is safe.
+
+### CI/CD
+
+Two GitHub Actions workflows guard every deploy; each check exists because the
+failure it catches has actually happened here:
+
+- **`ci.yml`** (pre-deploy, on every push/PR): validates `vercel.json` against
+  Vercel's published schema (unknown keys fail their build), imports the Flask
+  app with zero env vars set (import-time crashes would 500 every request),
+  builds the console and asserts the bundle has no mock mode / no localhost /
+  real API paths, and scans every tracked file for live-credential patterns.
+- **`verify-deployment.yml`** (post-deploy): Vercel reports each deployment to
+  GitHub; this probes the live URL — console served at `/`, the referenced JS
+  bundle resolves, `/api/health` is ok, and `AUTH_REQUIRED` is on in
+  production. A red X on the commit within a minute means the live site is
+  wrong even though the build "succeeded" — the class of failure that is
+  otherwise only found by clicking around.
+
+No secrets are needed by either workflow. The full `scripts/smoke_test.py`
+(which needs live credentials) stays a local pre-push step by choice.
 
 Accounts are **invite-only**: in Supabase → Authentication, turn off public
 signups, then add each staff account by hand under Users.

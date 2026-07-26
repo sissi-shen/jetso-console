@@ -1,12 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-
-  "//": "framework:null is load-bearing. Vercel auto-detected this repo as Flask, and the Flask preset routes EVERY request to the Python function, so the static console 404s. null = no preset: static files from outputDirectory are served at the root, and api/*.py is still auto-detected as a Serverless Function.",
   "framework": null,
-
   "buildCommand": "npm --prefix console install && npm --prefix console run build",
   "outputDirectory": "console/dist",
-
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" }
   ]

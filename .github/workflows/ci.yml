@@ -1,0 +1,99 @@
+# Pre-deploy gate: everything here runs BEFORE Vercel sees the commit.
+# Each job maps to a deployment failure this project has actually hit
+# (or nearly hit) — see README "Deployment".
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Catches: the `"//": "comment"` incident — Vercel validates vercel.json with
+  # additionalProperties:false and fails the build on ANY unknown key.
+  vercel-config:
+    name: vercel.json passes Vercel's own schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install --quiet jsonschema requests
+      - name: Validate against the published schema
+        run: |
+          python - <<'EOF'
+          import json, requests
+          from jsonschema import validators
+          cfg = json.load(open('vercel.json'))
+          schema = requests.get('https://openapi.vercel.sh/vercel.json', timeout=30).json()
+          # Instantiate directly (no check_schema): Vercel's published schema
+          # uses constructs jsonschema's meta-validator rejects, but the parts
+          # that matter (unknown keys, types) still validate our config fine.
+          cls = validators.validator_for(schema)
+          errors = list(cls(schema).iter_errors(cfg))
+          for e in errors:
+              print(f"::error::vercel.json: {'/'.join(map(str, e.path)) or '(root)'}: {e.message}")
+          if errors:
+              raise SystemExit(1)
+          print('vercel.json is valid; keys:', ', '.join(cfg))
+          EOF
+
+  # Catches: import-time crashes in the serverless function (syntax errors,
+  # missing deps, Python-version-only features). Vercel would build this fine
+  # and then 500 on every request — this fails the commit instead.
+  backend:
+    name: Flask app imports cleanly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install --quiet -r requirements.txt
+      - name: Import the serverless function (no .env present, like Vercel at build time)
+        run: python -c "import api.index; print('import OK —', len(api.index.app.url_map._rules), 'routes registered')"
+
+  # Catches: broken frontend builds, and the two silent config regressions that
+  # would ship a WORKING-LOOKING but wrong bundle (mock mode on / localhost API).
+  frontend:
+    name: Console builds a real production bundle
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Production bundle sanity (no mock, no localhost, real API paths)
+        run: |
+          set -e
+          fail=0
+          if grep -rq 'localhost:5001' dist/assets/; then
+            echo "::error::localhost:5001 is baked into the production bundle — check console/.env.production"; fail=1
+          fi
+          if grep -rq '演示数据' dist/assets/; then
+            echo "::error::mock mode is compiled into the production bundle — VITE_USE_MOCK is not false"; fail=1
+          fi
+          grep -rq '/api/auth/login' dist/assets/ || { echo "::error::real API paths missing from bundle"; fail=1; }
+          exit $fail
+
+  # Catches: a real credential committed anywhere in the tree — including
+  # .env.example, which is exactly where a copy-paste slip would land it.
+  no-secrets:
+    name: No live credentials in the tree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan every tracked file for live-credential patterns
+        run: |
+          # ':(exclude)' skips this workflow itself — it contains the patterns
+          if git grep -I -nE 'sk-or-v1-[A-Za-z0-9]{40,}|sb_secret_[A-Za-z0-9]|eyJhbGciOi' -- . ':(exclude).github/workflows/'; then
+            echo "::error::something shaped like a live credential is committed (see matches above)"
+            exit 1
+          fi
+          echo "clean"
